@@ -1,0 +1,17 @@
+# Environnements virtuels
+venv/
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Dossiers temporaires
+*.log
+*.tmp
+
+# VSCode / IDE
+.vscode/
+.idea/
