@@ -1,0 +1,4 @@
+fastapi
+mistralai
+qdrant-client
+uvicorn
