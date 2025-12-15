@@ -95,7 +95,7 @@ async def search(request: SearchRequest) -> SearchResponse:
 
     # 2) Recherche vectorielle dans Qdrant
     try:
-        hits = qdrant_client.search(
+        hits = qdrant_client.search_points(
             collection_name=COLLECTION_NAME,
             query_vector=embedding,
             limit=TOP_K,
