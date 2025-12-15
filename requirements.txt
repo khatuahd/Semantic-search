@@ -1,4 +1,4 @@
 fastapi
 uvicorn[standard]
 mistralai
-qdrant-client>=1.7.0
+qdrant-client==1.15.1

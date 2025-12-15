@@ -42,7 +42,16 @@ qdrant_client = QdrantClient(
     url=QDRANT_URL,
     api_key=QDRANT_API_KEY,
 )
+####
+import inspect
+import logging
 
+logging.info("QDRANT CLIENT TYPE: %s", type(qdrant_client))
+logging.info("QDRANT CLIENT MODULE: %s", type(qdrant_client).__module__)
+logging.info("QDRANT CLIENT DIR HAS search_points? %s", hasattr(qdrant_client, "search_points"))
+logging.info("QDRANT CLIENT DIR HAS search? %s", hasattr(qdrant_client, "search"))
+
+####
 # -----------------------------
 # MODELES Pydantic
 # -----------------------------
