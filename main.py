@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from mistralai import Mistral
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue
+from qdrant_client.http import models as rest  # <- IMPORTANT (PayloadSchemaType)
 
 # -----------------------------
 # CONFIG via variables d’environnement
@@ -72,6 +73,33 @@ class SearchResponse(BaseModel):
 # APP FastAPI
 # -----------------------------
 app = FastAPI(title="Semantic Search API")
+
+
+@app.on_event("startup")
+def ensure_qdrant_patient_index():
+    """
+    Assure que l'index payload meta.patientId existe dans Qdrant.
+    Nécessaire si Qdrant est en strict_mode (unindexed filtering interdit).
+    Idempotent: si l'index existe déjà, ne fait rien.
+    """
+    try:
+        info = qdrant_client.get_collection(COLLECTION_NAME)
+        payload_schema = getattr(info, "payload_schema", None) or {}
+
+        if "meta.patientId" in payload_schema:
+            logger.info("Qdrant payload index already exists: meta.patientId")
+            return
+
+        logger.info("Creating Qdrant payload index: meta.patientId (keyword)")
+        qdrant_client.create_payload_index(
+            collection_name=COLLECTION_NAME,
+            field_name="meta.patientId",
+            field_schema=rest.PayloadSchemaType.KEYWORD,
+        )
+        logger.info("Qdrant payload index created: meta.patientId")
+    except Exception:
+        # IMPORTANT: ne pas crasher le service si Qdrant a un souci temporaire au boot
+        logger.exception("Failed to ensure Qdrant index meta.patientId at startup")
 
 
 @app.get("/health")
