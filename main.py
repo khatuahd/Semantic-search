@@ -4,9 +4,10 @@ import os
 import logging
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from mistralai import Mistral
 from qdrant_client import QdrantClient
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 # -----------------------------
 # CONFIG via variables d’environnement
@@ -48,12 +49,19 @@ qdrant_client = QdrantClient(
 # -----------------------------
 class SearchRequest(BaseModel):
     query: str
+    # patientId doit être fourni dans le JSON
+    patient_id: str = Field(..., alias="patientId")
+
+    class Config:
+        populate_by_name = True  # accepte patient_id ou patientId
 
 
 class SearchResult(BaseModel):
     id: str
-    score: float  # similarité cosinus (Distance.COSINE)
+    score: float
     text: str
+    doc_id: str | None = None
+    patient_id: str | None = None  # meta.patientId
 
 
 class SearchResponse(BaseModel):
@@ -71,13 +79,29 @@ async def health():
     return {"status": "ok"}
 
 
+def _build_patient_filter(patient_id: str) -> Filter:
+    # Filtre strict sur meta.patientId
+    return Filter(
+        must=[
+            FieldCondition(
+                key="meta.patientId",
+                match=MatchValue(value=patient_id),
+            )
+        ]
+    )
+
+
 @app.post("/search", response_model=SearchResponse)
 async def search(request: SearchRequest) -> SearchResponse:
     query = request.query.strip()
+    patient_id = request.patient_id.strip()
+
     if not query:
         raise HTTPException(status_code=400, detail="Query must not be empty.")
+    if not patient_id:
+        raise HTTPException(status_code=400, detail="patientId must not be empty.")
 
-    logger.info(f"Search query={query!r}, top_k={TOP_K}")
+    logger.info("Search query=%r, top_k=%s, patientId=%r", query, TOP_K, patient_id)
 
     # 1) Embedding Mistral
     try:
@@ -88,42 +112,38 @@ async def search(request: SearchRequest) -> SearchResponse:
         embedding = emb_response.data[0].embedding
     except Exception as e:
         logger.exception("Error while generating embeddings with Mistral")
-        raise HTTPException(
-            status_code=502,
-            detail=f"Embedding generation failed: {e}",
-        )
+        raise HTTPException(status_code=502, detail=f"Embedding generation failed: {e}")
 
-    # 2) Recherche vectorielle dans Qdrant
+    # 2) Recherche vectorielle dans Qdrant + filtre patient obligatoire
+    q_filter = _build_patient_filter(patient_id=patient_id)
+
     try:
         hits = qdrant_client.search(
             collection_name=COLLECTION_NAME,
             query_vector=embedding,
             limit=TOP_K,
             with_payload=True,
+            query_filter=q_filter,
         )
     except Exception as e:
         logger.exception("Error while searching in Qdrant")
-        raise HTTPException(
-            status_code=502,
-            detail=f"Vector search failed: {e}",
-        )
+        raise HTTPException(status_code=502, detail=f"Vector search failed: {e}")
 
     # 3) Construction de la réponse
     results: List[SearchResult] = []
     for hit in hits:
         payload = hit.payload or {}
-        text = (
-            payload.get("text")
-            or payload.get("summary")
-            or payload.get("content")
-            or ""
-        )
+        meta = payload.get("meta") or {}
+
+        text = payload.get("text") or payload.get("summary") or payload.get("content") or ""
 
         results.append(
             SearchResult(
                 id=str(hit.id),
                 score=float(hit.score),
                 text=text,
+                doc_id=payload.get("doc_id"),
+                patient_id=meta.get("patientId"),
             )
         )
 
